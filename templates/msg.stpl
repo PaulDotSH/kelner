@@ -2,5 +2,5 @@
   <div style="font-size:42px; margin-bottom:12px;"><%= icon %></div>
   <h2 style="margin:0 0 8px;"><%= title %></h2>
   <p class="faint small" style="margin:0 0 20px;"><%= message %></p>
-  <a class="btn" href="/">Back to start</a>
+  <a class="btn" href="<%= base %>/">Back to start</a>
 </div>

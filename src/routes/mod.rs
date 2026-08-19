@@ -12,6 +12,7 @@ use axum::routing::{get, post};
 use axum::Router;
 
 use crate::auth::{require_admin, require_auth};
+use crate::fmt;
 use crate::templates;
 use crate::AppState;
 
@@ -42,10 +43,19 @@ pub fn router(state: AppState) -> Router {
         .route("/settings", post(admin::settings))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_admin));
 
-    public
+    // Router<AppState>, state NOT applied yet — it must be applied once, at the
+    // end, so the whole tree (including the outer base-path nest) shares it.
+    let app = public
         .merge(private)
-        .nest("/admin", admin)
-        .with_state(state)
+        .nest("/admin", admin);
+
+    // Mount everything under the base path (e.g. /s/kelner) when configured.
+    // When empty, serve at the domain root.
+    if fmt::base_path().is_empty() {
+        app.with_state(state)
+    } else {
+        Router::new().nest(fmt::base_path(), app).with_state(state)
+    }
 }
 
 async fn static_css() -> impl IntoResponse {

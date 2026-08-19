@@ -62,7 +62,7 @@ pub async fn admin_page(
 
 #[inline]
 fn redirect_err(msg: &str) -> Response {
-    Redirect::to(&format!("/admin?err={}", fmt::qenc(msg))).into_response()
+    Redirect::to(&fmt::join(&format!("/admin?err={}", fmt::qenc(msg)))).into_response()
 }
 
 pub async fn create_user(
@@ -81,7 +81,7 @@ pub async fn create_user(
     }
     let hash = hash_password_async(form.password).await?;
     db::create_user(&st.pool, &username, &hash, "user").await?;
-    Ok(Redirect::to(&format!("/admin?ok={}", fmt::qenc("User created"))).into_response())
+    Ok(Redirect::to(&fmt::join(&format!("/admin?ok={}", fmt::qenc("User created")))).into_response())
 }
 
 pub async fn delete_user(
@@ -111,7 +111,7 @@ pub async fn delete_user(
     }
     db::delete_sessions_for_user(&st.pool, id).await?;
     db::delete_user(&st.pool, id).await?;
-    Ok(Redirect::to(&format!("/admin?ok={}", fmt::qenc("User deleted"))).into_response())
+    Ok(Redirect::to(&fmt::join(&format!("/admin?ok={}", fmt::qenc("User deleted")))).into_response())
 }
 
 pub async fn set_password(
@@ -126,7 +126,7 @@ pub async fn set_password(
     db::set_user_password(&st.pool, id, &hash).await?;
     // kill all existing sessions for that user
     db::delete_sessions_for_user(&st.pool, id).await?;
-    Ok(Redirect::to(&format!("/admin?ok={}", fmt::qenc("Password updated"))).into_response())
+    Ok(Redirect::to(&fmt::join(&format!("/admin?ok={}", fmt::qenc("Password updated")))).into_response())
 }
 
 pub async fn delete_file(
@@ -138,7 +138,7 @@ pub async fn delete_file(
         .ok_or_else(|| AppError::NotFound("File not found".into()))?;
     db::delete_file_row(&st.pool, id).await?;
     let _ = tokio::fs::remove_file(&row.stored_path).await;
-    Ok(Redirect::to(&format!("/admin?ok={}", fmt::qenc("File deleted"))).into_response())
+    Ok(Redirect::to(&fmt::join(&format!("/admin?ok={}", fmt::qenc("File deleted")))).into_response())
 }
 
 pub async fn settings(
@@ -154,5 +154,5 @@ pub async fn settings(
     }
     let bytes = mb * 1024 * 1024;
     db::set_setting(&st.pool, "max_file_size_bytes", &bytes.to_string()).await?;
-    Ok(Redirect::to(&format!("/admin?ok={}", fmt::qenc("Settings saved"))).into_response())
+    Ok(Redirect::to(&fmt::join(&format!("/admin?ok={}", fmt::qenc("Settings saved")))).into_response())
 }

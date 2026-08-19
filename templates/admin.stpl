@@ -2,7 +2,7 @@
   <div class="section-title">Settings</div>
   <% if let Some(e) = err { %><div class="alert alert-error"><%= e %></div><% } %>
   <% if let Some(m) = ok { %><div class="alert alert-ok"><%= m %></div><% } %>
-  <form method="post" action="/admin/settings" style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;">
+  <form method="post" action="<%= base %>/admin/settings" style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;">
     <div class="field" style="flex:1; min-width:220px; margin:0;">
       <label>Max file size (MB)</label>
       <input type="number" name="max_file_size_mb" value="<%= max_size_mb %>" min="1" required>
@@ -25,12 +25,12 @@
         <td><span class="badge <%= u.badge_class %>"><%= u.role %></span></td>
         <td class="dim"><%= u.file_count %></td>
         <td class="actions">
-          <form method="post" action="/admin/users/<%= u.id %>/password" style="display:inline-flex; gap:6px; align-items:center;">
+          <form method="post" action="<%= base %>/admin/users/<%= u.id %>/password" style="display:inline-flex; gap:6px; align-items:center;">
             <input class="inline-input" type="password" name="password" placeholder="New password" required minlength="6" style="width:140px; padding:6px 10px;">
             <button class="btn btn-sm btn-ghost" type="submit">Reset</button>
           </form>
           <% if !u.is_self { %>
-          <form method="post" action="/admin/users/<%= u.id %>/delete" style="display:inline;">
+          <form method="post" action="<%= base %>/admin/users/<%= u.id %>/delete" style="display:inline;">
             <button class="btn btn-sm btn-danger" type="submit">Delete</button>
           </form>
           <% } %>
@@ -42,7 +42,7 @@
   <% } %>
   <hr class="divider">
   <div class="section-title">Create user</div>
-  <form method="post" action="/admin/users" style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;">
+  <form method="post" action="<%= base %>/admin/users" style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;">
     <div class="field" style="flex:1; min-width:160px; margin:0;">
       <label>Username</label>
       <input class="inline-input" type="text" name="username" placeholder="username" required>
@@ -77,7 +77,7 @@
         </td>
         <td class="actions">
           <button class="btn btn-sm btn-ghost" type="button" onclick="copyLink('<%= f.url %>', this)">Copy link</button>
-          <form method="post" action="/admin/files/<%= f.id %>/delete" style="display:inline;">
+          <form method="post" action="<%= base %>/admin/files/<%= f.id %>/delete" style="display:inline;">
             <button class="btn btn-sm btn-danger" type="submit">Delete</button>
           </form>
         </td>

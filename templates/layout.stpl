@@ -4,20 +4,20 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title><%= title %> · kelner</title>
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="<%= base %>/static/style.css">
 </head>
 <body>
 <div class="container">
 <% if let Some(u) = user { %>
   <div class="topbar">
-    <div class="brand"><a href="/">kelner<span class="dot">.</span></a></div>
+    <div class="brand"><a href="<%= base %>/">kelner<span class="dot">.</span></a></div>
     <nav class="topnav">
       <span class="user">Signed in as <strong><%= u.name %></strong></span>
-      <a class="btn btn-ghost btn-sm" href="/files">My files</a>
+      <a class="btn btn-ghost btn-sm" href="<%= base %>/files">My files</a>
       <% if u.role == "admin" { %>
-      <a class="btn btn-ghost btn-sm" href="/admin">Admin</a>
+      <a class="btn btn-ghost btn-sm" href="<%= base %>/admin">Admin</a>
       <% } %>
-      <form method="post" action="/logout" style="margin:0;">
+      <form method="post" action="<%= base %>/logout" style="margin:0;">
         <button class="btn btn-ghost btn-sm" type="submit">Sign out</button>
       </form>
     </nav>

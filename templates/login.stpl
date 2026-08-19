@@ -1,7 +1,7 @@
 <div class="card" style="max-width:380px; margin:48px auto 0;">
   <h2>Sign in</h2>
   <% if let Some(e) = error { %><div class="alert alert-error"><%= e %></div><% } %>
-  <form method="post" action="/login">
+  <form method="post" action="<%= base %>/login">
     <div class="field">
       <label>Username</label>
       <input type="text" name="username" placeholder="username" required autofocus>

@@ -5,6 +5,7 @@ use serde::Deserialize;
 
 use crate::auth::{gen_token, session_token_from_headers, verify_password_async};
 use crate::db;
+use crate::fmt;
 use crate::routes::{html_response, AppError};
 use crate::templates;
 use crate::AppState;
@@ -35,7 +36,7 @@ pub async fn login_page(
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     if logged_in(&st, &headers).await {
-        return Ok(Redirect::to("/").into_response());
+        return Ok(Redirect::to(&fmt::join("/")).into_response());
     }
     let html = templates::login_page(None)?;
     Ok(html_response(html))
@@ -60,7 +61,7 @@ pub async fn login(
     let user = user.expect("user is Some when valid");
     let token = gen_token(64);
     db::create_session(&st.pool, &token, user.id).await?;
-    Ok(crate::auth::redirect_with_session_cookie("/", &token))
+    Ok(crate::auth::redirect_with_session_cookie(&fmt::join("/"), &token))
 }
 
 pub async fn logout(
@@ -71,7 +72,7 @@ pub async fn logout(
     if let Some(tok) = session_token_from_headers(&headers) {
         db::delete_session(&st.pool, &tok).await?;
     }
-    let mut resp = Redirect::to("/login").into_response();
+    let mut resp = Redirect::to(&fmt::join("/login")).into_response();
     resp.headers_mut()
         .insert(axum::http::header::SET_COOKIE, crate::auth::clear_session_cookie_header());
     Ok(resp)

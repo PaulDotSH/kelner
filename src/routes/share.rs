@@ -66,14 +66,14 @@ pub async fn share_password(
 ) -> Result<Response, AppError> {
     let row = load_file(&st, &token).await?;
     let Some(hash) = &row.password_hash else {
-        return Ok(Redirect::to(&format!("/f/{token}/dl")).into_response());
+        return Ok(Redirect::to(&fmt::join(&format!("/f/{token}/dl"))).into_response());
     };
     if verify_password_async(form.password, hash.clone()).await? {
         // Correct password returns a signed path-scoped cookie so the
         // browser is authorized to download for the next hour without asking
         // again. We sign it (HMAC) to avoid storing state
         let signed = sign_grant(&st.cookie_secret, &token);
-        let mut resp = Redirect::to(&format!("/f/{token}/dl")).into_response();
+        let mut resp = Redirect::to(&fmt::join(&format!("/f/{token}/dl"))).into_response();
         resp.headers_mut()
             .insert(SET_COOKIE, set_grant_cookie_header(&token, &signed));
         Ok(resp)
@@ -159,7 +159,7 @@ pub async fn share_download(
     let row = load_file(&st, &token).await?;
 
     if row.password_hash.is_some() && !grant_cookie_valid(&headers, &st.cookie_secret, &token) {
-        return Ok(Redirect::to(&format!("/f/{token}")).into_response());
+        return Ok(Redirect::to(&fmt::join(&format!("/f/{token}"))).into_response());
     }
 
     let total = row.size_bytes.max(0) as u64;

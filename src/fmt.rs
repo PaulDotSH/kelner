@@ -1,9 +1,45 @@
 use std::fmt::Write as _;
+use std::sync::OnceLock;
 
 use axum::http::HeaderMap;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 
 use crate::models::FileRow;
+
+/// URL prefix the app is served under when behind a reverse proxy (e.g.
+/// `/s/kelner` for foarte.top/s/kelner). Empty when served at the domain root.
+/// Set once at startup from the `BASE_PATH` env var; read via [`base_path`].
+pub static BASE_PATH: OnceLock<String> = OnceLock::new();
+
+/// Normalize a BASE_PATH value: trim whitespace/slashes, require a leading `/`.
+/// `""`, `"/"` and `/s/kelner/` become `""` / `""` / `/s/kelner` respectively.
+fn normalize_base_path(raw: &str) -> String {
+    let mut s = raw.trim().trim_end_matches('/').to_string();
+    if s.is_empty() {
+        return String::new();
+    }
+    if !s.starts_with('/') {
+        s.insert(0, '/');
+    }
+    s
+}
+
+/// Set the base path from the `BASE_PATH` env var. Called once at startup,
+/// before the router is built. Subsequent calls are ignored.
+pub fn init_base_path(env_value: &str) {
+    let _ = BASE_PATH.set(normalize_base_path(env_value));
+}
+
+/// Current base path (empty when serving at root).
+pub fn base_path() -> &'static str {
+    BASE_PATH.get().map(String::as_str).unwrap_or("")
+}
+
+/// Prefix an absolute path (`/login`, `/files`, ...) with the base path.
+#[inline]
+pub fn join(path: &str) -> String {
+    format!("{}{path}", base_path())
+}
 
 #[inline]
 pub fn human_size(bytes: i64) -> String {
@@ -196,7 +232,9 @@ pub fn base_url(headers: &HeaderMap) -> String {
         .and_then(|v| v.to_str().ok())
         .unwrap_or("localhost")
         .to_string();
-    format!("{scheme}://{host}")
+    // Append the base path so share links point at the real location when the
+    // app is served under a prefix (e.g. https://foarte.top/s/kelner/f/{token}).
+    format!("{scheme}://{host}{}", base_path())
 }
 
 /// Percent-encode a value for safe use in a query string.

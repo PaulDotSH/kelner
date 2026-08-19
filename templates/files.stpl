@@ -2,7 +2,7 @@
   <h3>Upload a file</h3>
   <% if let Some(e) = err { %><div class="alert alert-error"><%= e %></div><% } %>
   <% if let Some(m) = ok { %><div class="alert alert-ok"><%= m %></div><% } %>
-  <form method="post" action="/upload" enctype="multipart/form-data">
+  <form method="post" action="<%= base %>/upload" enctype="multipart/form-data">
     <div class="field">
       <label>File</label>
       <input type="file" name="file" required>
@@ -50,7 +50,7 @@
         <td class="dim"><%= f.downloads %></td>
         <td class="actions">
           <button class="btn btn-sm btn-ghost" type="button" onclick="copyLink('<%= f.url %>', this)">Copy link</button>
-          <form method="post" action="/files/<%= f.id %>/delete" style="display:inline;">
+          <form method="post" action="<%= base %>/files/<%= f.id %>/delete" style="display:inline;">
             <button class="btn btn-sm btn-danger" type="submit">Delete</button>
           </form>
         </td>

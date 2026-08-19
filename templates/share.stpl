@@ -21,7 +21,7 @@
         <div class="file-name" style="font-size:18px;"><%= file.name %></div>
         <div class="faint small"><%= file.size %> · <span class="expiry"><span class="window"><%= file.window %></span><span class="remaining">· <%= file.remaining %></span></span></div>
       </div>
-      <form method="post" action="/f/<%= file.token %>">
+      <form method="post" action="<%= base %>/f/<%= file.token %>">
         <div class="field">
           <label>This file is password protected</label>
           <input type="password" name="password" placeholder="Password" required autofocus>
@@ -31,7 +31,7 @@
     </div>
   <% } else { %>
     <div style="margin-top: 4px;">
-      <a class="btn btn-primary" href="/f/<%= file.token %>/dl">⬇ Download</a>
+      <a class="btn btn-primary" href="<%= base %>/f/<%= file.token %>/dl">⬇ Download</a>
     </div>
   <% } %>
 
@@ -41,9 +41,9 @@
 <% if file.show_preview { %>
 <div class="preview">
   <% if file.preview_kind == "pdf" { %>
-    <iframe src="/f/<%= file.token %>/dl" title="<%= file.name %>"></iframe>
+    <iframe src="<%= base %>/f/<%= file.token %>/dl" title="<%= file.name %>"></iframe>
   <% } else { %>
-    <img src="/f/<%= file.token %>/dl" alt="<%= file.name %>" loading="lazy">
+    <img src="<%= base %>/f/<%= file.token %>/dl" alt="<%= file.name %>" loading="lazy">
   <% } %>
 </div>
 <% } %>

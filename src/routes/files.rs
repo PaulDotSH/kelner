@@ -15,7 +15,7 @@ use crate::templates::{self, FileView};
 use crate::AppState;
 
 pub async fn dashboard() -> Response {
-    Redirect::to("/files").into_response()
+    Redirect::to(&fmt::join("/files")).into_response()
 }
 
 pub async fn files_page(
@@ -148,7 +148,7 @@ pub async fn upload(
     )
     .await?;
 
-    Ok(Redirect::to(&format!("/files?ok={}", fmt::qenc("File uploaded"))).into_response())
+    Ok(Redirect::to(&fmt::join(&format!("/files?ok={}", fmt::qenc("File uploaded")))).into_response())
 }
 
 pub async fn delete_file(
@@ -166,5 +166,5 @@ pub async fn delete_file(
     }
     db::delete_file_row(&st.pool, id).await?;
     let _ = tokio::fs::remove_file(&row.stored_path).await;
-    Ok(Redirect::to(&format!("/files?ok={}", fmt::qenc("File deleted"))).into_response())
+    Ok(Redirect::to(&fmt::join(&format!("/files?ok={}", fmt::qenc("File deleted")))).into_response())
 }

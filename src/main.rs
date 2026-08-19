@@ -45,6 +45,10 @@ async fn main() -> anyhow::Result<()> {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
+    // Set the URL prefix BEFORE building the router — routes, redirects and
+    // templates all consult it via fmt::base_path().
+    fmt::init_base_path(&std::env::var("BASE_PATH").unwrap_or_default());
+
     let data_dir = PathBuf::from(std::env::var("DATA_DIR").unwrap_or_else(|_| "./data".into()));
     std::fs::create_dir_all(data_dir.join("uploads"))?;
 
@@ -63,7 +67,11 @@ async fn main() -> anyhow::Result<()> {
 
     let bind = std::env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:9111".into());
     let listener = tokio::net::TcpListener::bind(&bind).await?;
-    tracing::info!("kelner listening on http://{bind} (data dir: {})", state.data_dir.display());
+    tracing::info!(
+        "kelner listening on http://{bind} (data dir: {}, base path: {})",
+        state.data_dir.display(),
+        fmt::base_path()
+    );
 
     let app = routes::router(state);
     axum::serve(listener, app).await?;

@@ -176,12 +176,14 @@ pub struct Layout<'a> {
     pub title: &'a str,
     pub user: Option<&'a UserNav>,
     pub content: &'a str,
+    pub base: &'a str,
 }
 
 #[derive(TemplateSimple)]
 #[template(path = "login.stpl")]
 pub struct LoginPage<'a> {
     pub error: Option<&'a str>,
+    pub base: &'a str,
 }
 
 #[derive(TemplateSimple)]
@@ -191,6 +193,7 @@ pub struct FilesPage<'a> {
     pub err: Option<&'a str>,
     pub ok: Option<&'a str>,
     pub max_size_mb: i64,
+    pub base: &'a str,
 }
 
 #[derive(TemplateSimple)]
@@ -199,6 +202,7 @@ pub struct SharePage<'a> {
     pub file: FileShareView,
     pub error: Option<&'a str>,
     pub granted: bool,
+    pub base: &'a str,
 }
 
 #[derive(TemplateSimple)]
@@ -209,6 +213,7 @@ pub struct AdminPage<'a> {
     pub max_size_mb: i64,
     pub err: Option<&'a str>,
     pub ok: Option<&'a str>,
+    pub base: &'a str,
 }
 
 #[derive(TemplateSimple)]
@@ -217,15 +222,26 @@ pub struct MsgPage<'a> {
     pub icon: &'a str,
     pub title: &'a str,
     pub message: &'a str,
+    pub base: &'a str,
 }
 
 pub fn render_page(title: &str, user: Option<&UserNav>, content: String) -> Result<String, anyhow::Error> {
-    let layout = Layout { title, user, content: &content };
+    let layout = Layout {
+        title,
+        user,
+        content: &content,
+        base: fmt::base_path(),
+    };
     Ok(layout.render_once().map_err(|e| anyhow::anyhow!("template error: {e}"))?)
 }
 
 pub fn render_msg_page(icon: &str, title: &str, message: &str) -> Result<String, anyhow::Error> {
-    let msg = MsgPage { icon, title, message };
+    let msg = MsgPage {
+        icon,
+        title,
+        message,
+        base: fmt::base_path(),
+    };
     let content = msg
         .render_once()
         .map_err(|e| anyhow::anyhow!("template error: {e}"))?;
@@ -237,7 +253,7 @@ fn tpl_anyhow<T>(r: Result<T, sailfish::runtime::RenderError>) -> anyhow::Result
 }
 
 pub fn login_page(error: Option<&str>) -> anyhow::Result<String> {
-    let p = LoginPage { error };
+    let p = LoginPage { error, base: fmt::base_path() };
     let content = tpl_anyhow(p.render_once())?;
     render_page("Sign in", None, content)
 }
@@ -249,13 +265,13 @@ pub fn files_page(
     ok: Option<&str>,
     max_size_mb: i64,
 ) -> anyhow::Result<String> {
-    let p = FilesPage { files, err, ok, max_size_mb };
+    let p = FilesPage { files, err, ok, max_size_mb, base: fmt::base_path() };
     let content = tpl_anyhow(p.render_once())?;
     render_page("My files", user, content)
 }
 
 pub fn share_page(file: FileShareView, error: Option<&str>, granted: bool) -> anyhow::Result<String> {
-    let p = SharePage { file, error, granted };
+    let p = SharePage { file, error, granted, base: fmt::base_path() };
     let content = tpl_anyhow(p.render_once())?;
     render_page("kelner", None, content)
 }
@@ -268,7 +284,7 @@ pub fn admin_page(
     err: Option<&str>,
     ok: Option<&str>,
 ) -> anyhow::Result<String> {
-    let p = AdminPage { users, files, max_size_mb, err, ok };
+    let p = AdminPage { users, files, max_size_mb, err, ok, base: fmt::base_path() };
     let content = tpl_anyhow(p.render_once())?;
     render_page("Admin", user, content)
 }

@@ -13,6 +13,7 @@ use rand::Rng;
 use sha2::Sha256;
 
 use crate::db;
+use crate::fmt;
 use crate::AppState;
 
 pub const SESSION_COOKIE: &str = "kelner_session";
@@ -123,12 +124,16 @@ pub fn clear_session_cookie_header() -> HeaderValue {
 
 #[inline]
 pub fn set_grant_cookie_header(token: &str, signed: &str) -> HeaderValue {
-    // The password-grant cookie is scoped to the file's path (Path=/f/{token})
-    // so it only ever accompanies requests for that file. Short-lived (1h),
-    // HttpOnly, SameSite=Lax for the same reasons as the session cookie.
+    // The password-grant cookie is scoped to the file's path (Path=/f/{token},
+    // prefixed by the base path when served under one) so it only ever
+    // accompanies requests for that file. Short-lived (1h), HttpOnly,
+    // SameSite=Lax for the same reasons as the session cookie.
     let cookie = format!(
-        "{}={}; Path=/f/{}; HttpOnly; SameSite=Lax; Max-Age=3600",
-        GRANT_COOKIE, signed, token
+        "{}={}; Path={}/f/{}; HttpOnly; SameSite=Lax; Max-Age=3600",
+        GRANT_COOKIE,
+        signed,
+        fmt::base_path(),
+        token
     );
     HeaderValue::from_str(&cookie).expect("grant cookie is valid")
 }
@@ -238,7 +243,7 @@ pub async fn require_auth(
             req.extensions_mut().insert(user);
             next.run(req).await
         }
-        None => Redirect::to("/login").into_response(),
+        None => Redirect::to(&fmt::join("/login")).into_response(),
     }
 }
 
@@ -253,7 +258,7 @@ pub async fn require_admin(
             next.run(req).await
         }
         Some(_) => (StatusCode::FORBIDDEN, "Admins only").into_response(),
-        None => Redirect::to("/login").into_response(),
+        None => Redirect::to(&fmt::join("/login")).into_response(),
     }
 }
 
