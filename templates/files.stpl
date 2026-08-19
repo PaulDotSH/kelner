@@ -1,0 +1,71 @@
+<div class="card">
+  <h3>Upload a file</h3>
+  <% if let Some(e) = err { %><div class="alert alert-error"><%= e %></div><% } %>
+  <% if let Some(m) = ok { %><div class="alert alert-ok"><%= m %></div><% } %>
+  <form method="post" action="/upload" enctype="multipart/form-data">
+    <div class="field">
+      <label>File</label>
+      <input type="file" name="file" required>
+    </div>
+    <div class="field">
+      <label>Expires after</label>
+      <div class="segmented">
+        <input type="radio" name="exp" value="10m" id="exp-10m"><label for="exp-10m">10m</label>
+        <input type="radio" name="exp" value="1h" id="exp-1h"><label for="exp-1h">1h</label>
+        <input type="radio" name="exp" value="1d" id="exp-1d"><label for="exp-1d">1d</label>
+        <input type="radio" name="exp" value="7d" id="exp-7d"><label for="exp-7d">7d</label>
+        <input type="radio" name="exp" value="30d" id="exp-30d" checked><label for="exp-30d">30d</label>
+      </div>
+    </div>
+    <div class="field">
+      <label>Password protect (optional)</label>
+      <input type="password" name="password" placeholder="Leave blank for no password">
+    </div>
+    <p class="small faint" style="margin:0 0 14px;">Max file size: <%= max_size_mb %> MB</p>
+    <button class="btn btn-primary" type="submit">Upload</button>
+  </form>
+</div>
+
+<div class="card">
+  <div class="section-title">Your files</div>
+  <% if files.is_empty() { %>
+    <div class="empty">No files yet — upload one above.</div>
+  <% } else { %>
+  <table class="table">
+    <thead>
+      <tr><th>Name</th><th>Size</th><th>Expires</th><th>Downloads</th><th class="actions">Actions</th></tr>
+    </thead>
+    <tbody>
+      <% for f in files { %>
+      <tr>
+        <td class="name"><%= f.name %></td>
+        <td class="dim"><%= f.size %></td>
+        <td>
+          <% if f.expired { %>
+            <span class="pill danger">expired</span>
+          <% } else { %>
+            <span class="<%= f.expiry_class %>"><span class="window"><%= f.window %></span><span class="remaining">· <%= f.remaining %></span></span>
+          <% } %>
+        </td>
+        <td class="dim"><%= f.downloads %></td>
+        <td class="actions">
+          <button class="btn btn-sm btn-ghost" type="button" onclick="copyLink('<%= f.url %>', this)">Copy link</button>
+          <form method="post" action="/files/<%= f.id %>/delete" style="display:inline;">
+            <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+          </form>
+        </td>
+      </tr>
+      <% } %>
+    </tbody>
+  </table>
+  <% } %>
+</div>
+
+<script>
+function copyLink(url, btn) {
+  navigator.clipboard.writeText(url).then(function () {
+    btn.textContent = "Copied!";
+    setTimeout(function () { btn.textContent = "Copy link"; }, 1500);
+  });
+}
+</script>

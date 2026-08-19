@@ -1,0 +1,49 @@
+<div class="share-hero">
+  <div class="icon"><%= file.icon %></div>
+  <div class="file-name"><%= file.name %></div>
+  <div class="file-meta">
+    <span><%= file.size %></span><span>·</span>
+    <% if file.expired { %>
+      <span class="pill danger">expired</span>
+    <% } else { %>
+      <span class="expiry"><span class="window"><%= file.window %></span><span class="remaining">· <%= file.remaining %></span></span>
+    <% } %>
+    <% if file.is_preview { %><span>·</span><span class="pill ok">preview</span><% } %>
+  </div>
+
+  <% if let Some(e) = error { %>
+    <div class="alert alert-error" style="max-width:440px; margin:0 auto 16px;"><%= e %></div>
+  <% } %>
+
+  <% if file.password_protected && !granted { %>
+    <div class="card" style="max-width:440px; margin:0 auto;">
+      <div style="text-align:center; margin-bottom:16px;">
+        <div class="file-name" style="font-size:18px;"><%= file.name %></div>
+        <div class="faint small"><%= file.size %> · <span class="expiry"><span class="window"><%= file.window %></span><span class="remaining">· <%= file.remaining %></span></span></div>
+      </div>
+      <form method="post" action="/f/<%= file.token %>">
+        <div class="field">
+          <label>This file is password protected</label>
+          <input type="password" name="password" placeholder="Password" required autofocus>
+        </div>
+        <button class="btn btn-primary btn-block" type="submit">Unlock</button>
+      </form>
+    </div>
+  <% } else { %>
+    <div style="margin-top: 4px;">
+      <a class="btn btn-primary" href="/f/<%= file.token %>/dl">⬇ Download</a>
+    </div>
+  <% } %>
+
+  <div style="margin-top:14px;" class="faint small"><%= file.expires_line %></div>
+</div>
+
+<% if file.show_preview { %>
+<div class="preview">
+  <% if file.preview_kind == "pdf" { %>
+    <iframe src="/f/<%= file.token %>/dl" title="<%= file.name %>"></iframe>
+  <% } else { %>
+    <img src="/f/<%= file.token %>/dl" alt="<%= file.name %>" loading="lazy">
+  <% } %>
+</div>
+<% } %>

@@ -1,0 +1,15 @@
+<div class="card" style="max-width:380px; margin:48px auto 0;">
+  <h2>Sign in</h2>
+  <% if let Some(e) = error { %><div class="alert alert-error"><%= e %></div><% } %>
+  <form method="post" action="/login">
+    <div class="field">
+      <label>Username</label>
+      <input type="text" name="username" placeholder="username" required autofocus>
+    </div>
+    <div class="field">
+      <label>Password</label>
+      <input type="password" name="password" placeholder="••••••••" required>
+    </div>
+    <button class="btn btn-primary btn-block" type="submit">Sign in</button>
+  </form>
+</div>
