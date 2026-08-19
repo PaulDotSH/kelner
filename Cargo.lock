@@ -1237,10 +1237,8 @@ dependencies = [
  "serde",
  "sha2 0.11.0",
  "sqlx",
- "thiserror",
  "tokio",
  "tokio-util",
- "tower",
  "tracing",
  "tracing-subscriber",
 ]

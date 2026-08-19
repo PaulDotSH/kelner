@@ -9,6 +9,11 @@ use crate::routes::{html_response, AppError};
 use crate::templates;
 use crate::AppState;
 
+// Argon2id hash of a random string, used by `login` to burn the same CPU when a username
+// doesn't exist, so timing can't reveal whether an account is registered.
+const DUMMY_HASH: &str =
+    "$argon2id$v=19$m=19456,t=2,p=1$qVxv2ZLgkBO01+zUceAPfA$6eZYYhK+ymqdyauqNi9ogMqEeXn2PHDcIrP1d2rcvZo";
+
 #[derive(Deserialize)]
 pub struct LoginForm {
     username: String,
@@ -41,10 +46,12 @@ pub async fn login(
     Form(form): Form<LoginForm>,
 ) -> Result<Response, AppError> {
     let user = db::user_by_username(&st.pool, &form.username).await?;
-    // Prevent timing attacks by still checking anyway
+    // Prevent username-enumeration by timing: when the username doesn't exist
+    // we still run an Argon2 verify against a fixed dummy hash, so the response
+    // time is the same whether or not the account exists.
     let valid = match &user {
         Some(u) => verify_password_async(form.password.clone(), u.password_hash.clone()).await?,
-        None => false,
+        None => verify_password_async(form.password.clone(), DUMMY_HASH.to_string()).await?,
     };
     if !valid {
         let html = templates::login_page(Some("Invalid username or password"))?;

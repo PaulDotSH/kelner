@@ -1,20 +1,34 @@
 use std::path::Path;
+use std::time::Duration;
 
 use chrono::{Duration as ChronoDuration, Utc};
 use sqlx::migrate::Migrator;
-use sqlx::sqlite::SqliteConnectOptions;
-use sqlx::{SqlitePool};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous};
+use sqlx::{pool::PoolOptions, sqlite::Sqlite, SqlitePool};
 
 use crate::models::{FileRow, FileWithOwner, User, UserWithCount};
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
 pub async fn init_pool(db_path: &Path) -> anyhow::Result<SqlitePool> {
+    // WAL lets readers run concurrently with the single writer (the sweeper,
+    // admin writes, download counters) instead of blocking on the rollback
+    // journal. synchronous=Normal skips redundant fsyncs in WAL mode.
+    // busy_timeout prevents "database is locked" errors under brief write
+    // bursts from multiple connections.
     let opts = SqliteConnectOptions::new()
         .filename(db_path)
         .create_if_missing(true)
-        .foreign_keys(true);
-    let pool = SqlitePool::connect_with(opts).await?;
+        .foreign_keys(true)
+        .journal_mode(SqliteJournalMode::Wal)
+        .synchronous(SqliteSynchronous::Normal)
+        .busy_timeout(Duration::from_secs(5));
+    // SQLite is single-writer, so a single pooled connection removes all
+    // lock contention for a service of this scale; ops are microseconds.
+    let pool = PoolOptions::<Sqlite>::new()
+        .max_connections(1)
+        .connect_with(opts)
+        .await?;
     MIGRATOR.run(&pool).await?;
     Ok(pool)
 }

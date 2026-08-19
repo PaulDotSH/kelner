@@ -37,7 +37,10 @@ async fn seed_default_admin(pool: &SqlitePool) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::main(flavor = "current_thread")]
+// Two worker threads: enough to overlap two streaming transfers in parallel
+// without the background footprint of a full multi-core runtime. Argon2 hashing
+// is already offloaded to the blocking pool, so 2 workers is plenty here.
+#[tokio::main(worker_threads = 2)]
 async fn main() -> anyhow::Result<()> {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
     tracing_subscriber::fmt().with_env_filter(filter).init();
@@ -92,6 +95,20 @@ fn spawn_sweeper(state: AppState) {
                 for p in paths {
                     let _ = tokio::fs::remove_file(&p).await;
                 }
+            }
+
+            // Expired sessions are only deleted on logout/password reset, so
+            // this sweep keeps the table bounded.
+            match sqlx::query("DELETE FROM sessions WHERE expires_at <= ?")
+                .bind(&now)
+                .execute(&state.pool)
+                .await
+            {
+                Ok(res) if res.rows_affected() > 0 => {
+                    tracing::info!("sweeper purged {} expired session(s)", res.rows_affected());
+                }
+                Ok(_) => {}
+                Err(e) => tracing::warn!("sweeper session purge error: {e}"),
             }
         }
     });
