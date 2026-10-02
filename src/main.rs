@@ -48,6 +48,7 @@ async fn main() -> anyhow::Result<()> {
     // Set the URL prefix BEFORE building the router — routes, redirects and
     // templates all consult it via fmt::base_path().
     fmt::init_base_path(&std::env::var("BASE_PATH").unwrap_or_default());
+    auth::init_cookie_secure(std::env::var("COOKIE_SECURE").ok().as_deref());
 
     let data_dir = PathBuf::from(std::env::var("DATA_DIR").unwrap_or_else(|_| "./data".into()));
     std::fs::create_dir_all(data_dir.join("uploads"))?;

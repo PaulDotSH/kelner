@@ -237,14 +237,24 @@ pub fn base_url(headers: &HeaderMap) -> String {
     format!("{scheme}://{host}{}", base_path())
 }
 
-/// Percent-encode a value for safe use in a query string.
-///
-/// Delegates to `form_urlencoded` (already in the dependency tree via axum's
-/// Query/Form parsing) so our encode side is guaranteed to match the decode
-/// side: spaces become '+', everything non-unreserved is %XX-escaped.
+/// Status messages shown after a redirect, keyed by the `ok`/`err` query value.
+/// Unknown keys render nothing, so links can't inject their own text.
 #[inline]
-pub fn qenc(s: &str) -> String {
-    form_urlencoded::byte_serialize(s.as_bytes()).collect()
+pub fn flash_message(key: &str) -> Option<&'static str> {
+    Some(match key {
+        "file_uploaded" => "File uploaded",
+        "file_deleted" => "File deleted",
+        "user_created" => "User created",
+        "user_deleted" => "User deleted",
+        "password_updated" => "Password updated",
+        "settings_saved" => "Settings saved",
+        "username_required" => "Username is required",
+        "username_taken" => "That username is already taken",
+        "password_too_short" => "Password must be at least 6 characters",
+        "max_size_too_small" => "Max size must be at least 1 MB",
+        "max_size_too_large" => "Max size is too large",
+        _ => return None,
+    })
 }
 
 #[inline]

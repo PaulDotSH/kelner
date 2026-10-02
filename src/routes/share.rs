@@ -2,8 +2,8 @@ use std::io::SeekFrom;
 
 use axum::extract::{Form, Path, State};
 use axum::http::header::{
-    ACCEPT_RANGES, CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE,
-    RANGE, SET_COOKIE,
+    ACCEPT_RANGES, CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE,
+    CONTENT_SECURITY_POLICY, CONTENT_TYPE, RANGE, REFERRER_POLICY, SET_COOKIE,
 };
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
@@ -12,7 +12,9 @@ use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::io::ReaderStream;
 
-use crate::auth::{grant_cookie_valid, set_grant_cookie_header, sign_grant, verify_password_async};
+use crate::auth::{
+    grant_cookie_valid, set_grant_cookie_header, sign_grant, verify_password_async, GRANT_TTL_SECS,
+};
 use crate::db;
 use crate::fmt;
 use crate::models::FileRow;
@@ -72,7 +74,7 @@ pub async fn share_password(
         // Correct password returns a signed path-scoped cookie so the
         // browser is authorized to download for the next hour without asking
         // again. We sign it (HMAC) to avoid storing state
-        let signed = sign_grant(&st.cookie_secret, &token);
+        let signed = sign_grant(&st.cookie_secret, &token, Utc::now().timestamp() + GRANT_TTL_SECS);
         let mut resp = Redirect::to(&fmt::join(&format!("/f/{token}/dl"))).into_response();
         resp.headers_mut()
             .insert(SET_COOKIE, set_grant_cookie_header(&token, &signed));
@@ -244,6 +246,21 @@ pub async fn share_download(
     // no-store: never cache share downloads.
     resp.headers_mut()
         .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    // The URL is the capability: a link clicked inside a previewed PDF must not
+    // leak it to a third-party site via Referer.
+    resp.headers_mut()
+        .insert(REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
+    // CSP: only our own share page may frame the file (PDF preview iframe).
+    // Everything except PDFs is also sandboxed (no scripts, opaque origin), so
+    // even if something ever got rendered as a document it can't act as us.
+    // PDFs can't be sandboxed: Chrome refuses to load its viewer in a sandbox.
+    let csp = if fmt::preview_kind(&row.orig_name) == "pdf" {
+        "frame-ancestors 'self'"
+    } else {
+        "default-src 'none'; sandbox; frame-ancestors 'self'"
+    };
+    resp.headers_mut()
+        .insert(CONTENT_SECURITY_POLICY, HeaderValue::from_static(csp));
 
     db::bump_download_count(&st.pool, row.id).await?;
     Ok(resp)

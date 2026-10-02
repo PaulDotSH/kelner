@@ -1,18 +1,24 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 
+use axum::extract::multipart::Field;
 use axum::extract::{Extension, Multipart, Path, Query, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Redirect, Response};
 use chrono::Utc;
-use futures_util::StreamExt;
 use tokio::io::AsyncWriteExt;
 
 use crate::auth::{gen_token, hash_password_async, CurrentUser};
 use crate::db;
 use crate::fmt;
-use crate::routes::{html_response, AppError};
+use crate::routes::{flash_redirect, html_response, AppError};
 use crate::templates::{self, FileView};
 use crate::AppState;
+
+// The upload route has no body limit (the file is streamed to disk), so the
+// small text fields next to it are read with an explicit cap instead.
+const MAX_EXP_FIELD: usize = 16;
+const MAX_PASSWORD_FIELD: usize = 1024;
 
 pub async fn dashboard() -> Response {
     Redirect::to(&fmt::join("/files")).into_response()
@@ -39,10 +45,44 @@ pub async fn files_page(
         .await?
         .unwrap_or(1 << 30);
     let max_mb = max / (1024 * 1024);
-    let err = q.get("err").map(String::as_str);
-    let ok = q.get("ok").map(String::as_str);
+    let err = q.get("err").and_then(|k| fmt::flash_message(k));
+    let ok = q.get("ok").and_then(|k| fmt::flash_message(k));
     let html = templates::files_page(Some(&nav), files, err, ok, max_mb)?;
     Ok(html_response(html))
+}
+
+/// A file written to disk but not yet recorded in the DB. Dropping it deletes
+/// the file unless `keep` was set, so every failure path (size limit, client
+/// disconnect, bad field, DB error, cancelled request) cleans up after itself.
+struct PendingUpload {
+    path: PathBuf,
+    token: String,
+    orig_name: String,
+    size: i64,
+    keep: bool,
+}
+
+impl Drop for PendingUpload {
+    fn drop(&mut self) {
+        if !self.keep {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
+
+async fn small_text(mut field: Field<'_>, max: usize) -> Result<String, AppError> {
+    let mut buf = Vec::new();
+    while let Some(chunk) = field
+        .chunk()
+        .await
+        .map_err(|e| AppError::BadRequest(e.body_text()))?
+    {
+        if buf.len() + chunk.len() > max {
+            return Err(AppError::BadRequest("Form field is too large".into()));
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    String::from_utf8(buf).map_err(|_| AppError::BadRequest("Form field is not valid UTF-8".into()))
 }
 
 pub async fn upload(
@@ -54,11 +94,11 @@ pub async fn upload(
         .await?
         .unwrap_or(1 << 30);
 
-    let mut file_meta: Option<(String, String, i64)> = None; // (token, orig_name, size)
+    let mut upload: Option<PendingUpload> = None;
     let mut exp = "30d".to_string();
     let mut password: Option<String> = None;
 
-    while let Some(field) = multipart
+    while let Some(mut field) = multipart
         .next_field()
         .await
         .map_err(|e| AppError::BadRequest(e.body_text()))?
@@ -72,52 +112,52 @@ pub async fn upload(
                 if fname.is_empty() {
                     continue;
                 }
-                let token = gen_token(32);
+                // Only one file is ever recorded; a second would be written
+                // to disk with no DB row pointing at it.
+                if upload.is_some() {
+                    return Err(AppError::BadRequest("Only one file per upload".into()));
+                }
                 // Prevent guessing
-                let rel = format!("uploads/{token}");
-                let path = st.data_dir.join(&rel);
+                let token = gen_token(32);
+                // Absolute path. The sweeper and download route read this back
+                // so it must be consistent no matter the CWD.
+                let path = st.data_dir.join(format!("uploads/{token}"));
                 let mut out = tokio::fs::File::create(&path).await?;
+                let pending = upload.insert(PendingUpload {
+                    path,
+                    token,
+                    orig_name: fname,
+                    size: 0,
+                    keep: false,
+                });
 
-                let mut stream = field;
-                let mut size: i64 = 0;
-                let mut exceeded = false;
                 // Stream chunks to disk instead of in memory buffer
-                while let Some(chunk) = stream.next().await {
-                    let chunk = chunk.map_err(|e| AppError::BadRequest(e.to_string()))?;
-                    size += chunk.len() as i64;
-                    if size > max_size {
-                        exceeded = true;
-                        break;
+                while let Some(chunk) = field
+                    .chunk()
+                    .await
+                    .map_err(|e| AppError::BadRequest(e.body_text()))?
+                {
+                    pending.size += chunk.len() as i64;
+                    if pending.size > max_size {
+                        // `out` is closed before `upload` drops and deletes the file.
+                        return Err(AppError::TooLarge);
                     }
                     out.write_all(&chunk).await?;
                 }
                 out.flush().await?;
-                drop(out);
-
-                if exceeded {
-                    // Delete the partial file and return 413.
-                    let _ = tokio::fs::remove_file(&path).await;
-                    return Err(AppError::TooLarge);
-                }
-                file_meta = Some((token, fname, size));
             }
-            "exp" => {
-                if let Ok(t) = field.text().await {
-                    exp = t;
-                }
-            }
+            "exp" => exp = small_text(field, MAX_EXP_FIELD).await?,
             "password" => {
-                if let Ok(t) = field.text().await {
-                    if !t.is_empty() {
-                        password = Some(t);
-                    }
+                let t = small_text(field, MAX_PASSWORD_FIELD).await?;
+                if !t.is_empty() {
+                    password = Some(t);
                 }
             }
             _ => {}
         }
     }
 
-    let Some((token, orig_name, size)) = file_meta else {
+    let Some(mut upload) = upload else {
         return Err(AppError::BadRequest("No file selected".into()));
     };
 
@@ -130,25 +170,23 @@ pub async fn upload(
     };
     let created = now.to_rfc3339();
     let expires_s = expires_at.to_rfc3339();
-    let rel = format!("uploads/{token}");
-    // Absolute path. The sweeper and download route read this back
-    // so it must be consistent no matter the CWD.
-    let stored_path = st.data_dir.join(&rel).to_string_lossy().to_string();
+    let stored_path = upload.path.to_string_lossy().to_string();
 
     db::insert_file(
         &st.pool,
         user.id,
-        &token,
-        &orig_name,
-        size,
+        &upload.token,
+        &upload.orig_name,
+        upload.size,
         &stored_path,
         pass_hash.as_deref(),
         Some(&expires_s),
         &created,
     )
     .await?;
+    upload.keep = true;
 
-    Ok(Redirect::to(&fmt::join(&format!("/files?ok={}", fmt::qenc("File uploaded")))).into_response())
+    Ok(flash_redirect("/files", "ok", "file_uploaded"))
 }
 
 pub async fn delete_file(
@@ -166,5 +204,5 @@ pub async fn delete_file(
     }
     db::delete_file_row(&st.pool, id).await?;
     let _ = tokio::fs::remove_file(&row.stored_path).await;
-    Ok(Redirect::to(&fmt::join(&format!("/files?ok={}", fmt::qenc("File deleted")))).into_response())
+    Ok(flash_redirect("/files", "ok", "file_deleted"))
 }

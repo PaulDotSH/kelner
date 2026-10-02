@@ -4,10 +4,13 @@ mod files;
 mod share;
 
 use axum::extract::DefaultBodyLimit;
-use axum::http::header::{HeaderValue, CONTENT_TYPE};
+use axum::http::header::{
+    HeaderValue, CONTENT_SECURITY_POLICY, CONTENT_TYPE, REFERRER_POLICY, X_CONTENT_TYPE_OPTIONS,
+    X_FRAME_OPTIONS,
+};
 use axum::http::StatusCode;
 use axum::middleware;
-use axum::response::{IntoResponse, Response};
+use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::Router;
 
@@ -21,7 +24,10 @@ pub fn router(state: AppState) -> Router {
         .route("/login", get(auth::login_page).post(auth::login))
         .route("/f/{token}", get(share::share_page).post(share::share_password))
         .route("/f/{token}/dl", get(share::share_download))
-        .route("/static/style.css", get(static_css));
+        .route("/static/style.css", get(static_css))
+        // Public forms are a username + password at most. Keeping bodies tiny
+        // bounds the memory held by requests queued for an Argon2 permit.
+        .layer(DefaultBodyLimit::max(16 * 1024));
 
     // DefaultBodyLimit::disable() because we stream the upload and enforce the size
     // limit in code (files.rs::upload) so we can abort cleanly on overflow.
@@ -75,9 +81,32 @@ async fn static_css() -> impl IntoResponse {
 #[inline]
 pub fn html_response(html: String) -> Response {
     let mut resp = Response::new(html.into());
-    resp.headers_mut()
-        .insert(CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
+    let h = resp.headers_mut();
+    h.insert(CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
+    // No page of ours is meant to be framed (clickjacking on delete/reset buttons).
+    // X-Frame-Options covers old browsers, frame-ancestors the rest. The CSP
+    // can't restrict scripts without dropping the inline ones, so it just locks
+    // down plugins, <base> hijacking, and where forms may post to.
+    h.insert(X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    h.insert(
+        CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(
+            "frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'",
+        ),
+    );
+    // Share pages carry the capability token in their URL.
+    h.insert(REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
+    h.insert(X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
     resp
+}
+
+// Redirect to `path` with a status message. `kind` is "ok" or "err" and `key`
+// must be a key of fmt::flash_message: pages only render messages from that
+// table, so a crafted link can't put arbitrary text in front of a user.
+#[inline]
+pub fn flash_redirect(path: &str, kind: &str, key: &str) -> Response {
+    debug_assert!(fmt::flash_message(key).is_some(), "unknown flash key {key}");
+    Redirect::to(&fmt::join(&format!("{path}?{kind}={key}"))).into_response()
 }
 
 #[derive(Debug)]

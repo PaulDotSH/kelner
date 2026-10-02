@@ -6,7 +6,7 @@ when the link expires
 
 Built with Rust, axum, SQLite (via sqlx), and sailfish templates. Everything is
 packaged into a single binary plus a data directory.
-This is meant to be used behind nginx or something similar so you could gate the login if needed (rate limiting etc)
+This is meant to be used behind a reverse proxy that does TLS and rate limiting. See [DEPLOY.md](DEPLOY.md) for a Caddy setup.
 
 ## AI Usage
 This README and some of the code was AI generated, with all the AI generated parts being reviewed by me
@@ -43,6 +43,8 @@ automatically:
 | `ADMIN_PASSWORD`  | `admin`  | Password of the bootstrap admin account.       |
 | `DATA_DIR`        | `./data` | Where the SQLite DB, secret key, and uploads live. |
 | `BIND_ADDR`       | `127.0.0.1:9111` | Socket address to listen on.           |
+| `BASE_PATH`       | *(empty)* | URL prefix when served under a path, e.g. `/s/kelner`. |
+| `COOKIE_SECURE`   | `true`   | Adds `Secure` to cookies. Set `false` only for plain HTTP on a non-localhost address. |
 
 > The default credentials are `admin` / `admin`. **Change the password from the
 > admin panel after first login.** The bootstrap admin is only created when
@@ -78,14 +80,19 @@ of re-querying the DB.
 ### Authentication & sessions
 
 - Passwords are hashed with **Argon2id** (`src/auth.rs`). Hashing runs on the
-  blocking pool (`spawn_blocking`) so the single-threaded runtime never stalls.
+  blocking pool (`spawn_blocking`) so the async runtime never stalls. At most
+  4 hashes run at once (a semaphore); each needs ~19 MiB, so a flood of
+  login / unlock requests queues up instead of exhausting memory. Public routes
+  also cap request bodies at 16 KiB.
 - Login issues a random 32-char alphanumeric token, stores it in the `sessions`
   table (7-day expiry), and sets the `kelner_session` cookie. Every request
   re-validates the token against the DB; expired sessions are rejected in SQL
   (`expires_at > now`) so no code path can forget the check.
 - The cookie is `HttpOnly` (JS can't steal it, mitigating stored XSS),
-  `SameSite=Lax` (not sent cross-site, mitigating CSRF), and `Max-Age=604800`
-  to match the server-side lifetime. Logout deletes the DB row *and* clears the
+  `SameSite=Lax` (not sent cross-site, mitigating CSRF), `Secure` (never sent
+  over plain HTTP; see `COOKIE_SECURE`), scoped to `BASE_PATH` (other apps on
+  the same host don't receive it), and `Max-Age=604800` to match the
+  server-side lifetime. Logout deletes the DB row *and* clears the
   cookie, so the token is dead server-side even if the browser still sends it.
 - The cookie HMAC secret is generated once, persisted to `data/secret.key`
   (32 bytes / 256 bits), and reused across restarts so sessions survive.
@@ -93,19 +100,23 @@ of re-querying the DB.
 ### Password-protected files (signed grant cookies)
 
 Instead of storing "who unlocked which file" server-side, kelner mints a
-**stateless grant**: an HMAC-SHA256 signature over the file token, keyed with
-the cookie secret (`sign_grant` in `src/auth.rs`).
+**stateless grant**: `{token}.{expires_unix}.{hmac}`, an HMAC-SHA256 signature
+over the file token and an expiry timestamp, keyed with the cookie secret
+(`sign_grant` in `src/auth.rs`).
 
 - Set as the `kelner_grant` cookie, scoped to `Path=/f/{token}` so it only ever
   travels with requests for that one file.
-- Short-lived (1h) and `HttpOnly` / `SameSite=Lax` for the same reasons as the
-  session cookie.
+- Short-lived (1h) and `HttpOnly` / `SameSite=Lax` / `Secure` for the same
+  reasons as the session cookie. The expiry is part of the signed value, so it
+  is enforced server-side: a copied cookie value stops working after an hour
+  even if a client ignores `Max-Age`.
 - The embedded token must match the requested file (`verify_grant`), so a grant
   for one file can't be replayed on another.
 - Signatures are compared with a **constant-time** comparison (`ct_eq`): a
   naive `==` leaks, via timing, how many leading bytes match, which would let an
   attacker recover the expected HMAC byte-by-byte.
-- If the cookie secret ever leaks, the 1h lifetime bounds the exposure.
+- If the cookie secret ever leaks, rotate it by deleting `secret.key` and
+  restarting (this logs everyone out); a leaked secret lets anyone mint grants.
 
 ### File lifecycle & expiry
 
@@ -136,6 +147,22 @@ the cookie secret (`sign_grant` in `src/auth.rs`).
 | `Content-Disposition`    | `inline` for previewable files (images/PDFs), `attachment` otherwise - controls whether the browser renders or downloads. |
 | `X-Content-Type-Options: nosniff` | Stops MIME sniffing. Without it, a file we label `image/png` but which actually contains HTML could be executed as HTML in the origin's context (stored XSS). Share URLs are public and attacker-controlled, so this matters. |
 | `Cache-Control: no-store` | Share links are meant to expire and be revocable - neither the browser nor any intermediary cache should keep a copy that outlives the link. |
+| `Referrer-Policy: no-referrer` | The URL is the capability; a link clicked inside a previewed PDF must not leak it via `Referer`. |
+| `Content-Security-Policy` | `frame-ancestors 'self'` so only our share page can frame the file. Non-PDFs are also `sandbox`ed with `default-src 'none'`. PDFs can't be, since Chrome won't load its viewer in a sandbox. |
+
+HTML pages get `X-Frame-Options: DENY`, a CSP with `frame-ancestors 'none'`,
+`object-src 'none'`, `base-uri 'none'` and `form-action 'self'`, plus
+`Referrer-Policy: no-referrer` and `nosniff` (`html_response` in
+`src/routes/mod.rs`).
+
+### Uploads
+
+The upload route has no body limit, since the file is streamed to disk and the
+admin-configured cap is enforced while streaming. The `exp` and `password`
+fields are read with small explicit caps. Only one file is accepted per
+request. The written file is owned by a drop guard (`PendingUpload`) that
+deletes it unless the DB row was inserted, so a hit size limit, client
+disconnect or DB error never leaves an orphaned file.
 
 ### Security
 
@@ -143,8 +170,11 @@ the cookie secret (`sign_grant` in `src/auth.rs`).
   the verify against a dummy so response times don't leak whether the account
   exists).
 - Constant-time HMAC comparison for grant cookies.
-- `HttpOnly` + `SameSite=Lax` cookies everywhere.
-- `nosniff` + `no-store` on downloads.
+- `HttpOnly` + `SameSite=Lax` + `Secure` cookies everywhere.
+- Concurrent Argon2 runs are capped, so password endpoints can't exhaust memory.
+- `nosniff` + `no-store` + sandboxing CSP on downloads; anti-framing headers on pages.
+- Status messages after redirects (`?ok=` / `?err=`) are keys into a fixed
+  table (`fmt::flash_message`), so links can't inject arbitrary text.
 - Admins cannot delete their own account, and the **last admin** can never be
   removed - there is always a way back into the panel.
 - Resetting a user's password kills all of that user's existing sessions.
@@ -169,7 +199,7 @@ src/
   main.rs          # startup, config, admin seeding, background sweeper
   auth.rs          # hashing, session/grant cookies, middleware, HMAC signing
   db.rs            # all SQLite access
-  fmt.rs           # display helpers (sizes, expiry labels, content types, base_url, qenc)
+  fmt.rs           # display helpers (sizes, expiry labels, content types, base_url, flash messages)
   models.rs        # row types
   templates.rs     # sailfish template structs + render helpers
   routes/
